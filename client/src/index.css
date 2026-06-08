@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Meie+Script&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Outfit:wght@100..900&display=swap');
+@import "tailwindcss";
+
+* {
+  font-family:"Outfit" , sans-serif;
+}
+
+@theme{
+  --color-primary: #5044E5;
+  
+}
+.reset-tw, .reset-tw * {
+  all: revert !important;
+}
+.cl-drawerRoot{
+  z-index: 50;
+}
+
+.hero-wave-field {
+  mask-image: linear-gradient(to top, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0.08));
+  -webkit-mask-image: linear-gradient(to top, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0.08));
+}
+
+.hero-wave {
+  position: absolute;
+  left: -50%;
+  width: 200%;
+  min-width: 1200px;
+  height: 100%;
+  will-change: transform;
+}
+
+.hero-wave-back {
+  bottom: -12%;
+  opacity: 0.9;
+  animation: hero-wave-drift 18s linear infinite, hero-wave-float 7s ease-in-out infinite;
+}
+
+.hero-wave-mid {
+  bottom: -8%;
+  opacity: 0.95;
+  animation: hero-wave-drift-reverse 13s linear infinite, hero-wave-float 5.5s ease-in-out infinite reverse;
+}
+
+.hero-wave-front {
+  bottom: -4%;
+  opacity: 1;
+  animation: hero-wave-drift 10s linear infinite, hero-wave-float 4.4s ease-in-out infinite;
+}
+
+@keyframes hero-wave-drift {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(-18%);
+  }
+}
+
+@keyframes hero-wave-drift-reverse {
+  0% {
+    transform: translateX(-14%);
+  }
+
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes hero-wave-float {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+
+  50% {
+    translate: 0 -10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-wave-back,
+  .hero-wave-mid,
+  .hero-wave-front {
+    animation: none;
+  }
+}
