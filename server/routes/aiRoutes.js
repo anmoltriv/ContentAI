@@ -6,7 +6,8 @@ import {
     generateImage,
     getPublishedCreations,
     getUserCreations,
-    removeBackground
+    removeBackground,
+    removeObject
 } from '../controllers/aiController.js';
 import { auth } from '../middlewares/auth.js';
 
@@ -22,6 +23,7 @@ aiRouter.post('/generate-article',auth,generateArticle);
 aiRouter.post('/generate-blog-titles',auth,generateBlogTitles);
 aiRouter.post('/generate-image',auth,generateImage);
 aiRouter.post('/remove-background', auth, upload.single('image'), removeBackground);
+aiRouter.post('/remove-object',auth,upload.single('image'),removeObject);
 aiRouter.get('/creations', auth, getUserCreations);
 aiRouter.get('/public-creations', auth, getPublishedCreations);
 
