@@ -1,4 +1,3 @@
-import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -8,6 +7,9 @@ import { fileURLToPath } from "url";
 dotenv.config({
     path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.env"),
 });
+
+const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 function getGeminiApiKeys() {
     const keys = [
@@ -21,24 +23,39 @@ function getGeminiApiKeys() {
     return [...new Set(keys)];
 }
 
-function createGeminiClient(apiKey, vertexai = false) {
-    // Always pass a real apiKey and an explicit vertexai flag.
-    // If apiKey is omitted, @google/genai falls back to Google Auth and
-    // sends Authorization: Bearer <ADC token> instead of x-goog-api-key.
-    // If GOOGLE_GENAI_USE_VERTEXAI is set in the environment, the SDK would
-    // otherwise prefer project/location auth and drop the API key entirely.
-    return new GoogleGenAI({
-        apiKey,
-        vertexai,
-    });
-}
+function buildGeminiRequest({ apiKey, model, prompt, useQueryKey = false }) {
+    const endpoint = `${GEMINI_API_BASE}/models/${encodeURIComponent(model)}:generateContent`;
+    const url = useQueryKey ? `${endpoint}?key=${encodeURIComponent(apiKey)}` : endpoint;
+    const headers = {
+        "Content-Type": "application/json",
+    };
 
-function extractText(response) {
-    if (response?.text && response.text.trim()) {
-        return response.text;
+    // Gemini Developer API authenticates with x-goog-api-key (or ?key=).
+    // Do not send Authorization: Bearer — Vertex/Google Cloud treats that as
+    // a broken OAuth token and returns 401 "Expected OAuth 2 access token".
+    if (!useQueryKey) {
+        headers["x-goog-api-key"] = apiKey;
     }
 
-    const parts = response?.candidates?.[0]?.content?.parts;
+    return {
+        url,
+        options: {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+                contents: [
+                    {
+                        role: "user",
+                        parts: [{ text: prompt }],
+                    },
+                ],
+            }),
+        },
+    };
+}
+
+function extractText(data) {
+    const parts = data?.candidates?.[0]?.content?.parts;
     if (Array.isArray(parts)) {
         const text = parts.map((part) => part?.text || "").join("").trim();
         if (text) return text;
@@ -47,32 +64,33 @@ function extractText(response) {
     return "";
 }
 
-async function generateWithClient(ai, contents) {
-    const models = ["gemini-2.5-flash", "gemini-2.0-flash"];
-    let lastError = null;
-
-    for (const model of models) {
-        try {
-            const response = await ai.models.generateContent({
-                model,
-                contents,
-            });
-
-            const text = extractText(response);
-            if (text) {
-                return text;
-            }
-            throw new Error("Empty response returned");
-        } catch (err) {
-            console.warn(`[Fallback] Model ${model} failed: ${err.message}. Trying next model...`);
-            lastError = err;
-        }
+function parseGeminiError(data, status) {
+    const message = data?.error?.message || data?.message;
+    if (typeof message === "string" && message.trim()) {
+        return message.trim();
     }
 
-    throw lastError || new Error("All fallback models failed to generate content");
+    return `Gemini API responded with status ${status}`;
 }
 
-async function generateWithFallback(contents) {
+async function requestGemini({ apiKey, model, prompt, useQueryKey }) {
+    const { url, options } = buildGeminiRequest({ apiKey, model, prompt, useQueryKey });
+    const response = await fetch(url, options);
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(parseGeminiError(data, response.status));
+    }
+
+    const text = extractText(data);
+    if (!text) {
+        throw new Error("Empty response returned");
+    }
+
+    return text;
+}
+
+async function generateWithFallback(prompt) {
     const apiKeys = getGeminiApiKeys();
 
     if (apiKeys.length === 0) {
@@ -82,17 +100,19 @@ async function generateWithFallback(contents) {
     let lastError = null;
 
     for (const apiKey of apiKeys) {
-        // Gemini Developer API first (x-goog-api-key, no Bearer token).
-        // Vertex Express Mode second for AQ.* keys that only work on aiplatform.googleapis.com.
-        for (const vertexai of [false, true]) {
-            try {
-                const ai = createGeminiClient(apiKey, vertexai);
-                return await generateWithClient(ai, contents);
-            } catch (err) {
-                console.warn(
-                    `[Fallback] Gemini request failed (vertexai=${vertexai}): ${err.message}. Trying next auth mode...`,
-                );
-                lastError = err;
+        for (const model of GEMINI_MODELS) {
+            // Header first, then ?key= if a proxy or client strips custom headers.
+            // Never fall back to Vertex AI — that endpoint rejects API keys and
+            // asks for OAuth, which is the 401 the UI was showing.
+            for (const useQueryKey of [false, true]) {
+                try {
+                    return await requestGemini({ apiKey, model, prompt, useQueryKey });
+                } catch (err) {
+                    console.warn(
+                        `[Fallback] Gemini ${model} failed (${useQueryKey ? "query key" : "x-goog-api-key"}): ${err.message}`,
+                    );
+                    lastError = err;
+                }
             }
         }
     }
@@ -100,7 +120,7 @@ async function generateWithFallback(contents) {
     throw lastError || new Error("All fallback models failed to generate content");
 }
 
-export { getGeminiApiKeys, createGeminiClient };
+export { getGeminiApiKeys, buildGeminiRequest };
 
 export async function generateAIResponse(promptText, length) {
     try {
