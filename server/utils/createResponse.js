@@ -1,23 +1,66 @@
 import { GoogleGenAI } from "@google/genai";
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 
+// Load server/.env from this file's location so the Gemini key is available
+// even when the process is started from the repo root instead of /server.
+dotenv.config({
+    path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.env"),
+});
 
-const key = process.env.GEMINI_API_KEY; 
-const ai = new GoogleGenAI({ apiKey: key });
+function getGeminiApiKeys() {
+    const keys = [
+        process.env.GEMINI_API_KEY,
+        process.env.GEMINI_API_KEY_2,
+        process.env.GOOGLE_API_KEY,
+    ]
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter(Boolean);
 
-// Helper function to handle model fallback when a model is overloaded or in high demand
-async function generateWithFallback(contents) {
+    return [...new Set(keys)];
+}
+
+function createGeminiClient(apiKey, vertexai = false) {
+    // Always pass a real apiKey and an explicit vertexai flag.
+    // If apiKey is omitted, @google/genai falls back to Google Auth and
+    // sends Authorization: Bearer <ADC token> instead of x-goog-api-key.
+    // If GOOGLE_GENAI_USE_VERTEXAI is set in the environment, the SDK would
+    // otherwise prefer project/location auth and drop the API key entirely.
+    return new GoogleGenAI({
+        apiKey,
+        vertexai,
+    });
+}
+
+function extractText(response) {
+    if (response?.text && response.text.trim()) {
+        return response.text;
+    }
+
+    const parts = response?.candidates?.[0]?.content?.parts;
+    if (Array.isArray(parts)) {
+        const text = parts.map((part) => part?.text || "").join("").trim();
+        if (text) return text;
+    }
+
+    return "";
+}
+
+async function generateWithClient(ai, contents) {
     const models = ["gemini-2.5-flash", "gemini-2.0-flash"];
     let lastError = null;
 
     for (const model of models) {
         try {
             const response = await ai.models.generateContent({
-                model: model,
-                contents: contents
+                model,
+                contents,
             });
 
-            if (response && response.text) {
-                return response.text;
+            const text = extractText(response);
+            if (text) {
+                return text;
             }
             throw new Error("Empty response returned");
         } catch (err) {
@@ -29,7 +72,37 @@ async function generateWithFallback(contents) {
     throw lastError || new Error("All fallback models failed to generate content");
 }
 
-export async function generateAIResponse(promptText,length) {
+async function generateWithFallback(contents) {
+    const apiKeys = getGeminiApiKeys();
+
+    if (apiKeys.length === 0) {
+        throw new Error("Missing GEMINI_API_KEY. Add it to your server .env file.");
+    }
+
+    let lastError = null;
+
+    for (const apiKey of apiKeys) {
+        // Gemini Developer API first (x-goog-api-key, no Bearer token).
+        // Vertex Express Mode second for AQ.* keys that only work on aiplatform.googleapis.com.
+        for (const vertexai of [false, true]) {
+            try {
+                const ai = createGeminiClient(apiKey, vertexai);
+                return await generateWithClient(ai, contents);
+            } catch (err) {
+                console.warn(
+                    `[Fallback] Gemini request failed (vertexai=${vertexai}): ${err.message}. Trying next auth mode...`,
+                );
+                lastError = err;
+            }
+        }
+    }
+
+    throw lastError || new Error("All fallback models failed to generate content");
+}
+
+export { getGeminiApiKeys, createGeminiClient };
+
+export async function generateAIResponse(promptText, length) {
     try {
         const contents = `${promptText} The Length of the article should be ${length} words`;
         return await generateWithFallback(contents);

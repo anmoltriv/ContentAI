@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "server": "nodemon server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test utils/createResponse.test.js"
   },
   "keywords": [],
   "author": "",
