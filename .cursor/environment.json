@@ -1,0 +1,24 @@
+{
+  "name": "ContentAI",
+  "install": "cd server && npm ci && cd ../client && npm ci",
+  "terminals": [
+    {
+      "name": "server",
+      "command": "cd server && npm run server"
+    },
+    {
+      "name": "client",
+      "command": "cd client && npm run dev -- --host"
+    }
+  ],
+  "ports": [
+    {
+      "name": "client",
+      "port": 5173
+    },
+    {
+      "name": "server",
+      "port": 3000
+    }
+  ]
+}
